@@ -17,7 +17,7 @@
 	Set the name of the log file produced by the flash utility.
 	
 .EXAMPLE
-	.\Invoke-LenovoBIOSUpdate.ps1 -Path %OSDBIOSPackage01% -Password "BIOSPassword"
+	.\Invoke-LenovoBIOSUpdate.ps1 -Path %OSDBIOSPackage01% -Password "BIOSPassword" -Logo LOGO.JPG
 	
 .NOTES
     FileName:    Invoke-LenovoBIOSUpdate.ps1
@@ -37,18 +37,22 @@
 	1.0.7 - (2019-05-01) Extended the search for OLEDLG.dll to include X: for when running from WinPE
 	1.0.8 - (2019-05-01) Fixed a bug where the script would show an error and fail if the WinUPTP log file could not be found
 	1.0.9 - (2019-05-14) Handle $Password to check if empty string or null instead of just null value
+	1.0.10 - (2019-05-30) Add support for specifying bootlogo (needed on desktops ie. ThinkCentre/ThinkStation)
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
-	[parameter(Mandatory = $true, HelpMessage = "Specify the path containing the Flash64W.exe and BIOS executable.")]
+	[parameter(Mandatory = $false, HelpMessage = "Specify the path containing the Flash64W.exe and BIOS executable.")]
 	[ValidateNotNullOrEmpty()]
-	[string]$Path,
+	[string]$Path = "$PSScriptRoot",
 	[parameter(Mandatory = $false, HelpMessage = "Specify the BIOS password if necessary.")]
 	[ValidateNotNullOrEmpty()]
 	[string]$Password,
 	[parameter(Mandatory = $false, HelpMessage = "Set the name of the log file produced by the flash utility.")]
 	[ValidateNotNullOrEmpty()]
-	[string]$LogFileName = "LenovoFlashBiosUpdate.log"
+	[string]$LogFileName = "LenovoFlashBiosUpdate.log",
+	[parameter(Mandatory = $false, HelpMessage = "Set the name of the logo file, Read the readme file for size limitations.")]
+	[ValidateNotNullOrEmpty()]
+	[string]$BootlogoFileName = "LOGO.JPG"
 )
 Begin {
 	# Load Microsoft.SMS.TSEnvironment COM object
@@ -102,6 +106,27 @@ Process {
 	# Write log file for script execution
 	Write-CMLogEntry -Value "Initiating script to determine flashing capabilities for Lenovo BIOS updates" -Severity 1
 	
+	#Validate Logo file
+	$BootLogo = (Join-Path -Path $Path -ChildPath "$BootlogoFileName")
+	if ($BootlogoFileName -ne $null) {
+		if ((Test-Path -Path $BootLogo)) {
+			if ((Get-Item $BootLogo.Length -gt 0) -and (Get-Item $BootLogo.Length -lt 60kb)) {
+				Write-CMLogEntry -Value "Found Logo file $($BootLogo), and its OK size" -Severity 1
+			}
+			else {
+				Write-CMLogEntry -Value "Found BootLogoFile $($BootLogo), BUT its NOT OK size, skipping.." -Severity 2
+				$BootlogoFileName = $null
+			}
+		}
+		else {
+			Write-CMLogEntry -Value "Could not find Bootlogo file as specified $($BootLogo), skipping.." -Severity 1
+			$BootlogoFileName = $null
+		}
+	}
+	else {
+		Write-CMLogEntry -Value "BootLogoFileName not set, ignoring.." -Severity 1
+	}
+
 	# Check for required DLL's
 	if ((Test-Path -Path (Join-Path -Path $Path -ChildPath "OLEDLG.dll")) -eq $False) {
 		Write-CMLogEntry -Value "Copying OLEDLG.dll to $($Path) directory" -Severity 1
@@ -138,20 +163,24 @@ Process {
         $FlashCMDUtility = Get-ChildItem -Path $Path -Filter "*.cmd" -Recurse | Where-Object { $_.Name -like "Flash.cmd" } | Select-Object -ExpandProperty FullName
     }
 
-	if ($WinUPTPUtility -ne $null) {
+	if ($null -ne $WinUPTPUtility) {
 		# Set required switches for silent upgrade of the bios and logging
 		Write-CMLogEntry -Value "Using WinUTPT BIOS update method" -Severity 1
 		$FlashSwitches = " /S"
 		$FlashUtility = $WinUPTPUtility
 	}
 	
-	if ($FlashCMDUtility -ne $null) {
+	if ($null -ne $FlashCMDUtility) {
 		# Set required switches for silent upgrade of the bios and logging
 		Write-CMLogEntry -Value "Using FlashCMDUtility BIOS update method" -Severity 1
 		$FlashSwitches = " /quiet /sccm /ign"
 		$FlashUtility = $FlashCMDUtility
 	}
 	
+	if ($null -ne $BootlogoFileName) {
+		$FlashSwitches = $FlashSwitches + " /logo:$($BootLogoFileName)"
+	}
+
 	if (-not($FlashUtility)) {
 		Write-CMLogEntry -Value "Supported upgrade utility was not found." -Severity 3; break
 	}
@@ -168,7 +197,7 @@ Process {
 	# Set log file location
 	$LogFilePath = Join-Path -Path $TSEnvironment.Value("_SMSTSLogPath") -ChildPath $LogFileName
 	
-	if (($TSEnvironment -ne $null) -and ($TSEnvironment.Value("_SMSTSinWinPE") -eq $true)) {
+	if (($null -ne $TSEnvironment) -and ($TSEnvironment.Value("_SMSTSinWinPE") -eq $true)) {
 		try {
 			# Start flash update process
 			$FlashProcess = Start-Process -FilePath $FlashUtility -ArgumentList "$FlashSwitches" -Passthru -Wait
@@ -178,7 +207,7 @@ Process {
 			
 			#Get winuptp.log file
 			$WinUPTPLog = Get-ChildItem -Filter "*.log" -Recurse | Where-Object { $_.Name -like "winuptp.log" } -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-			if ($WinUPTPLog -ne $null) {
+			if ($null -ne $WinUPTPLog) {
 				Write-CMLogEntry -Value "winuptp.log file path is $($WinUPTPLog)" -Severity 1
 				$SMSTSLogPath = Join-Path -Path $TSEnvironment.Value("_SMSTSLogPath") -ChildPath "winuptp.log"
 				Copy-Item -Path $WinUPTPLog -Destination $SMSTSLogPath -Force -ErrorAction SilentlyContinue
