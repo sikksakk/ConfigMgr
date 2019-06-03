@@ -17,7 +17,7 @@
 	Set the name of the log file produced by the flash utility.
 	
 .EXAMPLE
-	.\Invoke-LenovoBIOSUpdate.ps1 -Path %OSDBIOSPackage01% -Password "BIOSPassword" -Logo LOGO.JPG
+	.\Invoke-LenovoBIOSUpdate.ps1 -Path %OSDBIOSPackage01% -Password "BIOSPassword" -BootlogoFileName LOGO.JPG
 	
 .NOTES
     FileName:    Invoke-LenovoBIOSUpdate.ps1
